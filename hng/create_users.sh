@@ -48,6 +48,21 @@ while IFS=';' read -r username groups; do
     username=$(echo "$username" | tr -d '[:space:]')
     groups=$(echo "$groups" | tr -d '[:space:]')
 
+    # Check if user already exists
+    if id -u "$username" >/dev/null 2>&1; then
+        log_message "User '$username' already exists. Skipping."
+        continue
+    fi
+
+    # Check if groups exist and create them if they don't
+    IFS=',' read -ra group_array <<< "$groups"
+    for group in "${group_array[@]}"; do
+        if ! getent group "$group" >/dev/null; then
+            sudo groupadd "$group"
+            log_message "Group '$group' created."
+        fi
+    done
+
     # Generate random password
     password=$(generate_password)
 
@@ -56,10 +71,8 @@ while IFS=';' read -r username groups; do
     echo "$username:$password" | sudo chpasswd >> "$log_file" 2>&1
 
     if [ $? -eq 0 ]; then
-        log_message "User '$username' created with groups: $groups. Password stored in $password_file."
+        log_message "User '$username' created with groups: $groups."
         echo "$username,$password" | sudo tee -a "$password_file" > /dev/null
-        sudo chmod 600 "$password_file"
-        sudo chown root:root "$password_file"
     else
         log_message "Failed to create user '$username'."
     fi
