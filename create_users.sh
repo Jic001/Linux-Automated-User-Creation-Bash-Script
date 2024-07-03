@@ -18,6 +18,34 @@ log_message() {
     echo "$log_timestamp - $1" >> "$log_file"
 }
 
+# Function to check and create groups
+check_and_create_group() {
+    local group="$1"
+    if ! getent group "$group" >/dev/null; then
+        sudo groupadd "$group"
+        log_message "Group '$group' created."
+    fi
+}
+
+# Function to create personal group for user
+create_personal_group() {
+    local username="$1"
+    if ! getent group "$username" >/dev/null; then
+        sudo groupadd "$username"
+        log_message "Personal group '$username' created for user '$username'."
+    fi
+}
+
+# Function to securely store password
+store_password_securely() {
+    local username="$1"
+    local password="$2"
+    echo "$username:$password" | sudo tee -a "$password_file" > /dev/null
+    sudo chmod 600 "$password_file"
+    sudo chown root:root "$password_file"
+    log_message "Password for user '$username' stored securely."
+}
+
 # Check if input file exists
 if [ ! -f "$input_file" ]; then
     log_message "Error: $input_file not found. Exiting script."
@@ -54,25 +82,25 @@ while IFS=';' read -r username groups; do
         continue
     fi
 
+    # Create personal group for user
+    create_personal_group "$username"
+
     # Check if groups exist and create them if they don't
     IFS=',' read -ra group_array <<< "$groups"
     for group in "${group_array[@]}"; do
-        if ! getent group "$group" >/dev/null; then
-            sudo groupadd "$group"
-            log_message "Group '$group' created."
-        fi
+        check_and_create_group "$group"
     done
 
     # Generate random password
     password=$(generate_password)
 
     # Create user with specified groups and set password
-    sudo useradd -m -s /bin/bash -G "$groups" "$username" >> "$log_file" 2>&1
+    sudo useradd -m -s /bin/bash -G "$groups,$username" "$username" >> "$log_file" 2>&1
     echo "$username:$password" | sudo chpasswd >> "$log_file" 2>&1
 
     if [ $? -eq 0 ]; then
         log_message "User '$username' created with groups: $groups."
-        echo "$username,$password" | sudo tee -a "$password_file" > /dev/null
+        store_password_securely "$username" "$password"
     else
         log_message "Failed to create user '$username'."
     fi
