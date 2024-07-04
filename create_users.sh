@@ -62,7 +62,7 @@ while IFS=';' read -r username groups; do
 
     # Check if user already exists
     if id -u "$username" >/dev/null 2>&1; then
-        log_message "User '$username' already exists. Skipping."
+        log_message "User '$username' already exists. Adding to specified groups."
     else
         # Generate random password
         password=$(generate_password)
@@ -83,11 +83,16 @@ while IFS=';' read -r username groups; do
     # Ensure user is in all specified groups
     IFS=',' read -ra group_array <<< "$groups"
     for group in "${group_array[@]}"; do
+        if ! getent group "$group" >/dev/null; then
+            sudo groupadd "$group"
+            log_message "Group '$group' created."
+        fi
         sudo usermod -aG "$group" "$username" >> "$log_file" 2>&1
     done
 
     # Ensure user is in their personal group
     sudo usermod -g "$username" "$username" >> "$log_file" 2>&1
+    log_message "User '$username' is in their personal group."
 
 done < "$input_file"
 
