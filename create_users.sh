@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Paths for files (Adjustments for review)
+# Paths for files
 input_file="$1"
 log_file="/var/log/user_management.log"
 password_file="/var/secure/user_passwords.txt"
@@ -11,13 +11,12 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-# Check if the input file is provided as an argument and direct on what to do if input file is not provided
+# Check if the input file is provided as an argument
 if [ $# -ne 1 ]; then
   echo "Please run this instead: $0 <name-of-text-file>"
   exit 1
 fi
 
-#(Adjustment. )
 # Function to generate random password
 generate_password() {
     local password_length=12
@@ -61,13 +60,17 @@ while IFS=';' read -r username groups; do
     username=$(echo "$username" | tr -d '[:space:]')
     groups=$(echo "$groups" | tr -d '[:space:]')
 
-    # Generate random password
-    password=$(generate_password)
+    # Check if user already exists
+    if id -u "$username" >/dev/null 2>&1; then
+        log_message "User '$username' already exists. Skipping."
+    else
+        # Generate random password
+        password=$(generate_password)
 
-    # Create user with personal group if user does not exist
-    if ! id -u "$username" >/dev/null 2>&1; then
-        sudo useradd -m -s /bin/bash -G "$groups" "$username" >> "$log_file" 2>&1
+        # Create user with primary group as username
+        sudo useradd -m -s /bin/bash -g "$username" -G "$groups" "$username" >> "$log_file" 2>&1
         echo "$username:$password" | sudo chpasswd >> "$log_file" 2>&1
+
         if [ $? -eq 0 ]; then
             log_message "User '$username' created with groups: $groups. Password set."
             echo "$username,$password" | sudo tee -a "$password_file" > /dev/null
@@ -75,17 +78,11 @@ while IFS=';' read -r username groups; do
             log_message "Failed to create user '$username'."
             continue
         fi
-    else
-        log_message "User '$username' already exists. Adding to specified groups."
     fi
 
-    # Create groups if they don't exist and add user to them
+    # Ensure user is in all specified groups
     IFS=',' read -ra group_array <<< "$groups"
     for group in "${group_array[@]}"; do
-        if ! getent group "$group" >/dev/null; then
-            sudo groupadd "$group"
-            log_message "Group '$group' created."
-        fi
         sudo usermod -aG "$group" "$username" >> "$log_file" 2>&1
     done
 
